@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Image brief workflow</title>
+    <!-- On static hosts that cannot send COOP/COEP headers (GitHub Pages), this service worker adds them so the
+         transcriber can use threads. It does nothing when the server already sends them. -->
+    <script src="./coi-serviceworker.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Loaded without blocking first paint: if the font host is slow or unreachable the page still renders with system fonts -->

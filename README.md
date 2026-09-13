@@ -11,6 +11,17 @@ npm run dev
 
 Then open http://localhost:5173 (it should open automatically).
 
+## Live site and deploys
+
+The app is published with GitHub Pages at
+https://alfonsostory.github.io/image-brief-app/ — every push to `main` runs
+`.github/workflows/deploy.yml`, which builds `dist/` and publishes it. GitHub
+Pages cannot send the COOP/COEP headers itself, so `public/coi-serviceworker.js`
+adds them from a service worker (the first visit reloads once).
+
+It also deploys unchanged on Vercel: import the repo there and `vercel.json`
+supplies the same two headers.
+
 ## Notes
 
 - Transcription runs in the browser. `src/transcribe.worker.js` loads Whisper

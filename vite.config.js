@@ -7,6 +7,8 @@ import tailwindcss from "@tailwindcss/vite";
 const isolation = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" };
 
 export default defineConfig({
+  // GitHub Pages serves project sites under /<repo>/; everywhere else the app lives at the root
+  base: process.env.GITHUB_PAGES ? "/image-brief-app/" : "/",
   plugins: [react(), tailwindcss()],
   server: { port: 5173, open: true, headers: isolation },
   preview: { headers: isolation },
