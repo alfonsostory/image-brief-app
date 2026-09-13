@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+/* Alfonso Edits agency theme: near-black ground, Inter for text, Space Grotesk for headings (same as the agency site) */
+html, body, #root { height: 100%; margin: 0; background: oklch(0.12 0.015 260); }
+h1, h2, h3 { font-family: "Space Grotesk", Inter, -apple-system, system-ui, sans-serif; }
