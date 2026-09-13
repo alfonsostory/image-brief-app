@@ -24,6 +24,11 @@ supplies the same two headers.
 
 ## Notes
 
+- The clip's audio is pulled out in the browser (`src/audio.js`). MP4/MOV/M4A
+  files are demuxed with mp4box.js and the AAC track is re-wrapped as ADTS (or
+  PCM read directly) before decoding, because Safari's decoder refuses video
+  containers such as iPhone `.MOV` files; other containers go to the browser's
+  decoder directly.
 - Transcription is Whisper either way, chosen under "Transcription" on the New
   request screen. The default runs in the browser: `src/transcribe.worker.js` loads Whisper
   (`onnx-community/whisper-base.en_timestamped`, about 90 MB, cached by the

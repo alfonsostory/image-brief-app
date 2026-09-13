@@ -559,7 +559,7 @@ function Processing({ draft, onDone, onBack }) {
       else setError("No speech was found in this clip.");
     };
     decodeAudio(draft.file)
-      .catch((e) => { throw new Error(`Couldn't read the clip's audio (${e.message}). Is it a video with a sound track?`); })
+      .catch((e) => { throw new Error(`Couldn't read the sound track of ${draft.file.name} (${e.message}). Try exporting the clip as an MP4 with AAC audio.`); })
       .then((audio) => {
         if (!live) return;
         if (!local) {
