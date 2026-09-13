@@ -24,7 +24,7 @@ function loadOne(model, dtype) {
         if (p.status !== "progress" || !p.total) return;
         files[p.file] = [p.loaded, p.total];
         const [loaded, total] = Object.values(files).reduce((a, f) => [a[0] + f[0], a[1] + f[1]], [0, 0]);
-        post({ type: "stage", label: "Downloading the speech model (first time only)…", pct: (loaded / total) * 100 });
+        post({ type: "stage", label: "Downloading Whisper (first time only)…", pct: (loaded / total) * 100 });
       },
     });
   }
@@ -42,16 +42,16 @@ async function load(model = MODEL, dtype) {
 
 self.onmessage = async ({ data: { audio, model, dtype } }) => {
   try {
-    post({ type: "stage", label: "Loading the speech model…", pct: null });
+    post({ type: "stage", label: "Loading Whisper…", pct: null });
     const transcriber = await load(model, dtype);
     const seconds = audio.length / 16000;
     let text = "";
     const streamer = new WhisperTextStreamer(transcriber.tokenizer, {
       skip_prompt: true,
-      on_chunk_start: (t) => post({ type: "stage", label: "Transcribing…", pct: Math.min(99, (t / seconds) * 100) }),
+      on_chunk_start: (t) => post({ type: "stage", label: "Transcribing with Whisper…", pct: Math.min(99, (t / seconds) * 100) }),
       callback_function: (piece) => { text += piece; post({ type: "partial", text }); },
     });
-    post({ type: "stage", label: "Transcribing…", pct: 0 });
+    post({ type: "stage", label: "Transcribing with Whisper…", pct: 0 });
     const out = await transcriber(audio, { return_timestamps: "word", chunk_length_s: 30, stride_length_s: 5, streamer });
     const words = (out.chunks || [])
       .map((c) => ({ text: c.text.trim(), start: c.timestamp[0], end: c.timestamp[1] ?? c.timestamp[0] + 0.3 }))

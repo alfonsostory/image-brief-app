@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { loadAssets, saveAsset, updateAsset, deleteAsset } from "./library.js";
 import { decodeAudio } from "./audio.js";
+import { transcribeWithOpenAI } from "./openai.js";
+import { loadSettings, saveSettings } from "./settings.js";
 
 // Transcript for the demo clip (real clips are transcribed in the browser, see transcribe.worker.js)
 const DEMO_LINES = [
@@ -66,7 +68,7 @@ function linesFromWords(words) {
     const prev = words[i - 1];
     const pause = prev ? start - prev.end : 0;
     const sentenceEnd = prev && /[.!?]$/.test(prev.text) && cur.words.length >= 4;
-    if (!cur || cur.words.length >= 12 || pause > 0.8 || sentenceEnd) {
+    if (!cur || cur.words.length >= 12 || pause > 0.8 || sentenceEnd || prev?.break) {
       cur = { id: nid(), t: start, end: start, words: [], times: [] };
       lines.push(cur);
     }
@@ -423,6 +425,8 @@ function NewRequest({ onContinue }) {
   const [file, setFile] = useState(null);
   const [err, setErr] = useState("");
   const inp = useRef();
+  const [settings, setSettings] = useState(loadSettings);
+  const update = (patch) => setSettings((prev) => { const next = { ...prev, ...patch }; saveSettings(next); return next; });
 
   const pick = (f) => {
     if (!f) return;
@@ -470,6 +474,18 @@ function NewRequest({ onContinue }) {
       </div>
       {err && <p className="mt-2" style={{ color: "#ff7a7a" }}>{err}</p>}
 
+      <div className="text-[11px] mt-8 mb-2" style={{ color: C.faint }}>Transcription</div>
+      <div className="rounded-xl p-4 flex flex-col gap-3" style={{ background: C.panel, border: `1px solid ${C.line}` }}>
+        <EngineOption value="local" current={settings.engine} onPick={(engine) => update({ engine })} title="Whisper on this device" blurb="Free and private — nothing leaves your computer. The first clip downloads a ~90 MB model, kept for next time." />
+        <EngineOption value="openai" current={settings.engine} onPick={(engine) => update({ engine })} title="OpenAI Whisper API" blurb="Usually more accurate and quicker on long clips. Sends the clip's audio to OpenAI with your API key; clips up to about 13 minutes." />
+        {settings.engine === "openai" && (
+          <label className="block pl-6">
+            <div className="text-[11px] mb-1.5" style={{ color: C.faint }}>OpenAI API key · kept only in this browser</div>
+            <input type="password" value={settings.openaiKey} onChange={(e) => update({ openaiKey: e.target.value.trim() })} placeholder="sk-…" autoComplete="off" className={inputCls} style={inputStyle} />
+          </label>
+        )}
+      </div>
+
       <div className="mt-8 flex items-center gap-4">
         <button
           disabled={!file}
@@ -490,6 +506,21 @@ function NewRequest({ onContinue }) {
   );
 }
 
+function EngineOption({ value, current, onPick, title, blurb }) {
+  const on = current === value;
+  return (
+    <button type="button" onClick={() => onPick(value)} className="flex items-start gap-3 text-left" aria-pressed={on}>
+      <span className="mt-1 w-3.5 h-3.5 rounded-full shrink-0 grid place-items-center" style={{ border: `1px solid ${on ? ACCENT : C.mute}` }}>
+        {on && <span className="w-2 h-2 rounded-full" style={{ background: ACCENT }} />}
+      </span>
+      <span>
+        <span className="font-medium">{title}</span>
+        <span className="block text-xs mt-0.5" style={{ color: C.mute }}>{blurb}</span>
+      </span>
+    </button>
+  );
+}
+
 const inputCls = "w-full px-3 py-2 rounded-md outline-none focus:ring-2";
 const inputStyle = { background: C.panel, border: `1px solid ${C.line}`, color: C.text };
 function Field({ label, children }) {
@@ -502,36 +533,54 @@ function Field({ label, children }) {
 }
 
 // ---------- 2. Processing ----------
-// Real clips: decode the sound track, hand it to the Whisper worker, and show download / transcription progress
-// with the text as it streams in. The demo clip just loads DEMO_LINES.
+// Real clips: decode the sound track, then either hand it to the Whisper worker on this device or send it to
+// OpenAI's Whisper API, per the Transcription setting. The demo clip just loads DEMO_LINES.
 function Processing({ draft, onDone, onBack }) {
-  const [stage, setStage] = useState({ label: draft.file ? "Reading the clip's audio…" : "Loading the demo transcript…", pct: null });
+  const [engine, setEngine] = useState(() => loadSettings().engine);
+  const [attempt, setAttempt] = useState(0);
+  const [stage, setStage] = useState({ label: "", pct: null });
   const [partial, setPartial] = useState("");
   const [error, setError] = useState("");
+  const local = engine !== "openai";
+
   useEffect(() => {
+    setError("");
+    setPartial("");
+    setStage({ label: draft.file ? "Reading the clip's audio…" : "Loading the demo transcript…", pct: null });
     if (!draft.file) {
       const t = setTimeout(() => onDone(parseTranscript(DEMO_LINES)), 900);
       return () => clearTimeout(t);
     }
     let live = true;
-    const worker = new Worker(new URL("./transcribe.worker.js", import.meta.url), { type: "module" });
-    worker.onmessage = ({ data }) => {
-      if (!live) return;
-      if (data.type === "stage") setStage({ label: data.label, pct: data.pct });
-      else if (data.type === "partial") setPartial(data.text);
-      else if (data.type === "error") setError(data.message);
-      else if (data.type === "done") {
-        const lines = linesFromWords(data.words);
-        if (lines.length) onDone(lines);
-        else setError("No speech was found in this clip.");
-      }
+    let worker;
+    const finish = (words) => {
+      const lines = linesFromWords(words);
+      if (lines.length) onDone(lines);
+      else setError("No speech was found in this clip.");
     };
-    worker.onerror = (e) => { if (live) setError(e.message || "The transcriber stopped unexpectedly."); };
     decodeAudio(draft.file)
-      .then((audio) => { if (live) worker.postMessage({ audio }, [audio.buffer]); })
-      .catch((e) => { if (live) setError(`Couldn't read the clip's audio (${e.message}). Is it a video with a sound track?`); });
-    return () => { live = false; worker.terminate(); };
-  }, []);
+      .catch((e) => { throw new Error(`Couldn't read the clip's audio (${e.message}). Is it a video with a sound track?`); })
+      .then((audio) => {
+        if (!live) return;
+        if (!local) {
+          const { openaiKey } = loadSettings();
+          if (!openaiKey) throw new Error("Add your OpenAI API key under Transcription on the New request screen, or use Whisper on this device.");
+          return transcribeWithOpenAI(audio, openaiKey, (label) => { if (live) setStage({ label, pct: null }); }).then((words) => { if (live) finish(words); });
+        }
+        worker = new Worker(new URL("./transcribe.worker.js", import.meta.url), { type: "module" });
+        worker.onmessage = ({ data }) => {
+          if (!live) return;
+          if (data.type === "stage") setStage({ label: data.label, pct: data.pct });
+          else if (data.type === "partial") setPartial(data.text);
+          else if (data.type === "error") setError(data.message);
+          else if (data.type === "done") finish(data.words);
+        };
+        worker.onerror = (e) => { if (live) setError(e.message || "The transcriber stopped unexpectedly."); };
+        worker.postMessage({ audio }, [audio.buffer]);
+      })
+      .catch((e) => { if (live) setError(e.message); });
+    return () => { live = false; worker?.terminate(); };
+  }, [engine, attempt]);
 
   return (
     <div className="h-full min-h-[70vh] grid place-items-center">
@@ -540,9 +589,11 @@ function Processing({ draft, onDone, onBack }) {
         {error ? (
           <>
             <div className="mb-6" style={{ color: C.mute }}>{error}</div>
-            <div className="flex justify-center gap-3">
+            <div className="flex flex-wrap justify-center gap-3">
               <button onClick={onBack} className="px-3 py-1.5 rounded-md" style={{ background: C.panel, border: `1px solid ${C.line}` }}>Back</button>
-              <button onClick={() => onDone(parseTranscript(DEMO_LINES))} className="px-3 py-1.5 rounded-md font-medium" style={{ background: ACCENT, color: ON_ACCENT }}>Use the demo transcript</button>
+              <button onClick={() => setAttempt((a) => a + 1)} className="px-3 py-1.5 rounded-md" style={{ background: C.panel, border: `1px solid ${C.line}` }}>Try again</button>
+              {!local && <button onClick={() => setEngine("local")} className="px-3 py-1.5 rounded-md font-medium" style={{ background: ACCENT, color: ON_ACCENT }}>Use Whisper on this device instead</button>}
+              <button onClick={() => onDone(parseTranscript(DEMO_LINES))} className="px-3 py-1.5 rounded-md" style={{ background: C.panel, border: `1px solid ${C.line}` }}>Use the demo transcript</button>
             </div>
           </>
         ) : (
@@ -557,7 +608,11 @@ function Processing({ draft, onDone, onBack }) {
                 {partial.length > 400 ? "…" : ""}{partial.slice(-400)}
               </div>
             )}
-            {draft.file && <div className="mt-4 text-[11px]" style={{ color: C.faint }}>Runs on your device — nothing is uploaded. The first clip downloads a ~90 MB speech model, which is kept for next time.</div>}
+            {draft.file && (
+              <div className="mt-4 text-[11px]" style={{ color: C.faint }}>
+                {local ? "Whisper runs on your device — nothing is uploaded. The first clip downloads a ~90 MB model, which is kept for next time." : "Whisper via OpenAI's API, using the key you saved. Only the clip's audio is sent."}
+              </div>
+            )}
           </>
         )}
       </div>

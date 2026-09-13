@@ -24,7 +24,8 @@ supplies the same two headers.
 
 ## Notes
 
-- Transcription runs in the browser. `src/transcribe.worker.js` loads Whisper
+- Transcription is Whisper either way, chosen under "Transcription" on the New
+  request screen. The default runs in the browser: `src/transcribe.worker.js` loads Whisper
   (`onnx-community/whisper-base.en_timestamped`, about 90 MB, cached by the
   browser after the first run) through transformers.js and returns a start
   time for every word, so nothing is uploaded and no API key is needed. Lines
@@ -32,6 +33,10 @@ supplies the same two headers.
   estimated `DEMO_LINES`. The Vite dev and preview servers send COOP/COEP
   headers so the WebAssembly runtime can use threads — set the same headers
   wherever the app is hosted.
+- The other option is OpenAI's Whisper API (`whisper-1`, `src/openai.js`): the
+  decoded audio is sent as a 16 kHz WAV with your API key, which is kept in
+  `localStorage` only. OpenAI caps uploads at 25 MB, about 13 minutes of audio.
+  Word timings come from `words` and punctuation from `segments`.
 - Images and music/SFX attach to a passage the same way: the `+` in the
   panel, or drop files on it. Editing notes (free text for the editor) are
   typed into the panel's notes box. Every upload and note is also saved to
