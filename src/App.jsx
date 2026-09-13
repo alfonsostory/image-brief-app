@@ -785,17 +785,22 @@ function BriefEditor({ draft, setBriefs, library, addToLibrary, addNoteToLibrary
             const lineSel = sel?.li === li;
             const lineLive = live?.li === li;
             const lineBriefs = briefs.filter((b) => b.li === li);
-            const hasThumbs = lineBriefs.length > 0;
+            // Images and notes sit above the line, audio below it, so the line gets room on whichever side is used
+            const roomAbove = lineBriefs.some((b) => b.images.length || b.notes.length);
+            const roomBelow = lineBriefs.some((b) => b.audio.length);
             return (
-              <div key={l.id} className="flex gap-4 rounded-lg px-2" style={{ background: lineSel || lineLive ? tint(0.08) : "transparent", paddingTop: hasThumbs ? 46 : 10, paddingBottom: 10 }}>
+              <div key={l.id} className="flex gap-4 rounded-lg px-2" style={{ background: lineSel || lineLive ? tint(0.08) : "transparent", paddingTop: roomAbove ? 46 : 10, paddingBottom: roomBelow ? 40 : 10 }}>
                 <button className="text-xs shrink-0 w-11 text-left mt-0.5" style={{ color: ACCENT }} onClick={() => pick({ li, a: 0, b: l.words.length - 1 }, l.t)}>{fmt(l.t)}</button>
                 <div className="leading-7 flex flex-wrap">
                   {l.words.map((w, wi) => {
                     const inSel = lineSel && wi >= sel.a && wi <= sel.b;
                     const isLive = lineLive && live.wi === wi;
-                    const owner = lineBriefs.find((b) => wi >= b.a && wi <= b.b);
-                    const isFirst = owner && wi === owner.a;
-                    const maxThumbs = 4 - (owner?.audio.length ? 1 : 0) - (owner?.notes.length ? 1 : 0);
+                    const covered = lineBriefs.some((b) => wi >= b.a && wi <= b.b);
+                    // Passages can overlap, so every passage that starts on this word gets its own markers
+                    const starting = lineBriefs.filter((b) => b.a === wi);
+                    const above = starting.filter((b) => b.images.length || b.notes.length);
+                    const below = starting.filter((b) => b.audio.length);
+                    const select = (e, b) => { e.stopPropagation(); pick({ li, a: b.a, b: b.b }, wordTime(lines, li, b.a)); };
                     return (
                       <span
                         key={wi}
@@ -805,46 +810,68 @@ function BriefEditor({ draft, setBriefs, library, addToLibrary, addNoteToLibrary
                         style={{
                           background: isLive ? ACCENT : inSel ? tint(0.28) : "transparent",
                           color: isLive ? ON_ACCENT : undefined,
-                          boxShadow: owner ? `inset 0 -2px 0 ${ACCENT}` : "none",
+                          boxShadow: covered ? `inset 0 -2px 0 ${ACCENT}` : "none",
                         }}
                       >
                         {w}
-                        {isFirst && (
-                          <span className="absolute left-0 flex gap-0.5 p-0.5 rounded-md" style={{ top: -40, background: C.bg, border: `1px solid ${ACCENT}` }}
-                            onMouseDown={(e) => { e.stopPropagation(); pick({ li, a: owner.a, b: owner.b }, wordTime(lines, li, owner.a)); }}>
-                            {owner.images.slice(0, maxThumbs).map((im) => <img key={im.id} src={im.url} className="w-7 h-7 object-cover rounded" alt="" />)}
-                            {owner.images.length > maxThumbs && <span className="w-7 h-7 grid place-items-center text-[10px]" style={{ color: C.mute }}>+{owner.images.length - maxThumbs}</span>}
-                            {owner.audio.length > 0 && <span className="w-7 h-7 grid place-items-center text-xs rounded" style={{ color: ACCENT, background: C.panel }} title={plural(owner.audio.length, "track")}>♪</span>}
-                            {owner.notes.length > 0 && (
-                              <span
-                                className="relative w-7 h-7 grid place-items-center text-xs rounded cursor-pointer"
-                                style={pinnedNotes === owner.id ? { color: ON_ACCENT, background: ACCENT } : { color: ACCENT, background: C.panel }}
-                                aria-label={plural(owner.notes.length, "note")}
-                                onMouseEnter={() => setHoverNotes(owner.id)}
-                                onMouseLeave={() => setHoverNotes(null)}
-                                onMouseDown={(e) => {
-                                  e.stopPropagation();
-                                  if (pinnedNotes === owner.id) { setPinnedNotes(null); setHoverNotes(null); }
-                                  else setPinnedNotes(owner.id);
-                                }}
-                              >
-                                ✎
-                                {(hoverNotes === owner.id || pinnedNotes === owner.id) && (
-                                  <NotesPopover
-                                    brief={owner}
-                                    at={wordTime(lines, li, owner.a)}
-                                    pinned={pinnedNotes === owner.id}
-                                    below={li === 0}
-                                    onClose={() => { setPinnedNotes(null); setHoverNotes(null); }}
-                                    onEdit={editNote}
-                                    onRemove={(id) => removeItem("notes", id)}
-                                  />
-                                )}
-                              </span>
-                            )}
+                        {above.length > 0 && (
+                          <span className="absolute left-0 flex items-end gap-1" style={{ top: -40 }}>
+                            {above.map((b) => {
+                              const maxThumbs = b.notes.length ? 3 : 4;
+                              return (
+                                <span key={b.id} className="flex gap-0.5 p-0.5 rounded-md" style={{ background: C.bg, border: `1px solid ${ACCENT}` }} title={`“${l.words.slice(b.a, b.b + 1).join(" ")}”`} onMouseDown={(e) => select(e, b)}>
+                                  {b.images.slice(0, maxThumbs).map((im) => <img key={im.id} src={im.url} className="w-7 h-7 object-cover rounded" alt="" />)}
+                                  {b.images.length > maxThumbs && <span className="w-7 h-7 grid place-items-center text-[10px]" style={{ color: C.mute }}>+{b.images.length - maxThumbs}</span>}
+                                  {b.notes.length > 0 && (
+                                    <span
+                                      className="relative w-7 h-7 grid place-items-center text-xs rounded cursor-pointer"
+                                      style={pinnedNotes === b.id ? { color: ON_ACCENT, background: ACCENT } : { color: ACCENT, background: C.panel }}
+                                      aria-label={plural(b.notes.length, "note")}
+                                      onMouseEnter={() => setHoverNotes(b.id)}
+                                      onMouseLeave={() => setHoverNotes(null)}
+                                      onMouseDown={(e) => {
+                                        e.stopPropagation();
+                                        if (pinnedNotes === b.id) { setPinnedNotes(null); setHoverNotes(null); }
+                                        else setPinnedNotes(b.id);
+                                      }}
+                                    >
+                                      ✎
+                                      {(hoverNotes === b.id || pinnedNotes === b.id) && (
+                                        <NotesPopover
+                                          brief={b}
+                                          at={wordTime(lines, li, b.a)}
+                                          pinned={pinnedNotes === b.id}
+                                          below={li === 0}
+                                          onClose={() => { setPinnedNotes(null); setHoverNotes(null); }}
+                                          onEdit={editNote}
+                                          onRemove={(id) => removeItem("notes", id)}
+                                        />
+                                      )}
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })}
                           </span>
                         )}
-                        {" "}
+                        {below.length > 0 && (
+                          <span className="absolute left-0 flex gap-1" style={{ top: "100%", marginTop: 4 }}>
+                            {below.map((b) => (
+                              <span
+                                key={b.id}
+                                className="flex items-center gap-1 h-6 px-2 rounded-md text-[11px] whitespace-nowrap cursor-pointer"
+                                style={{ background: C.bg, border: `1px solid ${ACCENT}`, color: C.text }}
+                                title={`“${l.words.slice(b.a, b.b + 1).join(" ")}” · ${b.audio.map((t) => t.name).join(", ")}`}
+                                aria-label={plural(b.audio.length, "track")}
+                                onMouseDown={(e) => select(e, b)}
+                              >
+                                <span style={{ color: ACCENT }}>♪</span>
+                                <span className="truncate max-w-[160px]">{b.audio.length === 1 ? b.audio[0].name : plural(b.audio.length, "track")}</span>
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                        {" "}
                       </span>
                     );
                   })}
